@@ -1,11 +1,32 @@
 # Zo Voice
 
+[![android](https://github.com/LogicIncZo/zo-voice/actions/workflows/android.yml/badge.svg)](https://github.com/LogicIncZo/zo-voice/actions/workflows/android.yml)
+
 Talk to your Zo from Android. Voice in, voice out — hands-free follow-ups, conversations
 that continue across sessions, live streaming replies spoken as they arrive.
 
 Built on the Zo API (`POST /zo/ask` with SSE streaming) and Android's built-in
 `SpeechRecognizer` (STT) + `TextToSpeech` (TTS). No third-party speech services,
 no extra API keys beyond your Zo access token.
+
+## Engineering loop
+
+```bash
+make verify   # unit tests + lint + debug build (no emulator needed)
+make apk      # verify + copy to releases/
+```
+
+13 JVM unit tests cover the SSE parser and sentence chunker — the two pieces
+that decide what gets spoken. See CONTRIBUTING.md for conventions and gotchas.
+
+## Engineering loop
+
+```bash
+make verify   # unit tests (13, JVM-only) + lint + build — no emulator needed
+make apk      # verify + drop APK in releases/
+```
+
+See CONTRIBUTING.md for conventions and known gotchas.
 
 ## Install
 

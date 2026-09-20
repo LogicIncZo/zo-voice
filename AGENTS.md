@@ -45,6 +45,22 @@ Package: `in.cashlessconsumer.zovoice` (namespace string in app/build.gradle.kts
 
 ## Build / verify
 
+The agent loop — one command, no emulator:
+
+```bash
+make verify        # unit tests + lint + debug build
+make apk           # verify + copy APK to releases/
+make test          # JVM unit tests only (fastest signal)
+./gradlew compileDebugKotlin   # fastest compile error check
+```
+
+Unit tests (13, `app/src/test/`) cover the pure-logic core: `ZoSseParser`
+and `SentenceChunker`. Keep new logic out of Android framework classes so it
+stays JVM-testable; `org.json` on the JVM comes from `testImplementation
+org.json:json` (Android ships a stub).
+
+Legacy granular commands:
+
 ```bash
 ./gradlew assembleDebug        # debug APK
 ./gradlew compileDebugKotlin   # fast error check
