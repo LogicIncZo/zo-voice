@@ -17,11 +17,12 @@ import java.util.concurrent.TimeUnit
  * Minimal Zo API client: POST /zo/ask (SSE streaming), GET /models/available,
  * GET /personas/available. Auth: Bearer access token from Zo Settings > Advanced.
  */
+/** Error raised for Zo API and stream failures; [isAuthError] marks 401/403 token problems. */
+class ZoException(message: String, val isAuthError: Boolean = false) : Exception(message)
+
 object ZoApi {
 
     const val BASE_URL = "https://api.zo.computer"
-
-    class ZoException(message: String, val isAuthError: Boolean = false) : Exception(message)
 
     data class Options(val token: String, val model: String, val persona: String)
 
@@ -127,64 +128,10 @@ object ZoApi {
 
     private fun parseSse(response: Response, onDelta: (String) -> Unit, onStatus: (String?) -> Unit) {
         val source = response.body?.source() ?: throw ZoException("Empty response body")
-        var event = ""
+        val parser = ZoSseParser(onDelta, onStatus)
         while (true) {
             val line = source.readUtf8Line() ?: break
-            when {
-                line.startsWith("event:") -> event = line.removePrefix("event:").trim()
-                line.startsWith("data:") -> handleData(event, line.removePrefix("data:").trim(), onDelta, onStatus)
-            }
-        }
-    }
-
-    /**
-     * Stream facts verified live 2026-09-20:
-     *  - PartStartEvent: part.part_kind == "text" | "thinking"; only speak "text".
-     *  - PartDeltaEvent: delta.part_delta_kind == "text" | "thinking"; append delta.content_delta for "text".
-     *  - AgentRuntimeStreamChunk type=status carries data.message like "Thinking...".
-     *  - completed: status "succeeded" | failure; Error: data.message.
-     *  - FrontendModelResponse (docs format): data.content.
-     */
-    private fun handleData(event: String, data: String, onDelta: (String) -> Unit, onStatus: (String?) -> Unit) {
-        if (data.isEmpty() || data == "[DONE]") return
-        val obj = try {
-            JSONObject(data)
-        } catch (_: Exception) {
-            return
-        }
-        when (event) {
-            "PartStartEvent" -> {
-                val part = obj.optJSONObject("part") ?: return
-                if (part.optString("part_kind") == "text") {
-                    val content = part.optString("content")
-                    if (content.isNotEmpty()) onDelta(content)
-                }
-            }
-            "PartDeltaEvent" -> {
-                val delta = obj.optJSONObject("delta") ?: return
-                if (delta.optString("part_delta_kind") == "text") {
-                    val d = delta.optString("content_delta")
-                    if (d.isNotEmpty()) onDelta(d)
-                }
-            }
-            "FrontendModelResponse" -> {
-                val content = obj.optString("content")
-                if (content.isNotEmpty()) onDelta(content)
-            }
-            "AgentRuntimeStreamChunk" -> {
-                if (obj.optString("type") == "status") {
-                    val msg = obj.optJSONObject("data")?.optString("message").orEmpty()
-                    onStatus(msg.ifEmpty { obj.optString("status").ifEmpty { null } })
-                }
-            }
-            "completed" -> {
-                val status = obj.optString("status")
-                if (status.isNotEmpty() && status != "succeeded") {
-                    val detail = obj.optString("error_type")
-                    throw ZoException("Zo run $status${if (detail.isNotEmpty()) ": $detail" else ""}")
-                }
-            }
-            "Error" -> throw ZoException(obj.optString("message").ifEmpty { "Zo stream error" })
+            if (parser.feedLine(line)) break
         }
     }
 

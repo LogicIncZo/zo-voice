@@ -7,6 +7,7 @@ import `in`.cashlessconsumer.zovoice.data.ChatMessage
 import `in`.cashlessconsumer.zovoice.data.ChatStore
 import `in`.cashlessconsumer.zovoice.data.Prefs
 import `in`.cashlessconsumer.zovoice.data.ZoApi
+import `in`.cashlessconsumer.zovoice.data.ZoException
 import `in`.cashlessconsumer.zovoice.voice.SpeechRecognizerManager
 import `in`.cashlessconsumer.zovoice.voice.TtsManager
 import kotlinx.coroutines.Job
@@ -273,7 +274,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun friendly(t: Throwable): String =
-        (t as? ZoApi.ZoException)?.message ?: t.message ?: "Something went wrong talking to Zo."
+        (t as? ZoException)?.message ?: t.message ?: "Something went wrong talking to Zo."
 
     // ---- conversation management ----
 
