@@ -32,6 +32,8 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.RecordVoiceOver
+import androidx.compose.material.icons.filled.Forum
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Button
@@ -102,18 +104,30 @@ fun ZoVoiceTheme(content: @Composable () -> Unit) {
 fun ZoVoiceApp(vm: AppViewModel) {
     var screen by remember { mutableStateOf("chat") }
     ZoVoiceTheme {
-        BackHandler(enabled = screen == "settings") { screen = "chat" }
+        BackHandler(enabled = screen != "chat") { screen = "chat" }
         if (screen == "settings") {
             SettingsScreen(vm = vm, onBack = { screen = "chat" })
+        } else if (screen == "conversations") {
+            ConversationsScreen(vm = vm, onBack = { screen = "chat" })
         } else {
-            ChatScreen(vm = vm, onOpenSettings = { screen = "settings" })
+            ChatScreen(
+                vm = vm,
+                onOpenSettings = { screen = "settings" },
+                onOpenConversations = { screen = "conversations" },
+                onCatchUp = { vm.catchMeUp() },
+            )
         }
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ChatScreen(vm: AppViewModel, onOpenSettings: () -> Unit) {
+fun ChatScreen(
+    vm: AppViewModel,
+    onOpenSettings: () -> Unit,
+    onOpenConversations: () -> Unit,
+    onCatchUp: () -> Unit,
+) {
     val ui by vm.ui.collectAsState()
     val settings by vm.settings.collectAsState()
     val context = LocalContext.current
@@ -141,6 +155,12 @@ fun ChatScreen(vm: AppViewModel, onOpenSettings: () -> Unit) {
                     containerColor = MaterialTheme.colorScheme.background
                 ),
                 actions = {
+                    IconButton(onClick = onCatchUp) {
+                        Icon(Icons.Filled.RecordVoiceOver, contentDescription = "Catch me up")
+                    }
+                    IconButton(onClick = onOpenConversations) {
+                        Icon(Icons.Filled.Forum, contentDescription = "Conversations")
+                    }
                     IconButton(onClick = { vm.newConversation() }) {
                         Icon(Icons.Filled.Add, contentDescription = "New conversation")
                     }

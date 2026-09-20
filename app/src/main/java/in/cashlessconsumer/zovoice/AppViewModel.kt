@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import `in`.cashlessconsumer.zovoice.data.ChatMessage
+import `in`.cashlessconsumer.zovoice.voice.SentenceChunker
 import `in`.cashlessconsumer.zovoice.data.ChatStore
 import `in`.cashlessconsumer.zovoice.data.Prefs
 import `in`.cashlessconsumer.zovoice.data.ZoApi
@@ -18,6 +19,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import `in`.cashlessconsumer.zovoice.data.ZoConversation
+import `in`.cashlessconsumer.zovoice.data.ZoConversations
 import okhttp3.Call
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -64,6 +67,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val modelsLoading = MutableStateFlow(false)
     val modelsError = MutableStateFlow<String?>(null)
     val personas = MutableStateFlow<List<ZoApi.PersonaInfo>>(emptyList())
+    val conversations = MutableStateFlow<List<ZoConversation>>(emptyList())
+    val conversationsError = MutableStateFlow<String?>(null)
+    private var conversationsLoaded = false
     val personasLoading = MutableStateFlow(false)
     val personasError = MutableStateFlow<String?>(null)
 
@@ -170,6 +176,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun send(text: String) {
+        if (handleVoiceCommand(text)) return
         val token = prefs.token
         if (token.isBlank()) {
             ui.update { it.copy(phase = Phase.Idle, error = "Add your Zo API token in Settings first.") }
@@ -275,6 +282,131 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun friendly(t: Throwable): String =
         (t as? ZoException)?.message ?: t.message ?: "Something went wrong talking to Zo."
+
+    // ---- existing conversations: list, continue, hear updates ----
+
+    fun loadConversations(force: Boolean = false) {
+        if (prefs.token.isBlank()) {
+            conversationsError.value = "Add your Zo API token in Settings first."
+            return
+        }
+        if (conversationsLoaded && !force) return
+        conversationsLoaded = true
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val remote = ZoConversations.list(prefs.token)
+                val localId = prefs.conversationId
+                val merged = if (localId.isNotBlank() && remote.none { it.id == localId }) {
+                    val localTitle = ui.value.messages.firstOrNull { it.role == "user" }
+                        ?.text?.take(60) ?: "This conversation"
+                    remote + ZoConversation(localId, localTitle, null, null, local = true)
+                } else {
+                    remote
+                }
+                kotlinx.coroutines.withContext(Dispatchers.Main) {
+                    conversations.value = merged
+                    conversationsError.value = null
+                }
+            } catch (t: Throwable) {
+                kotlinx.coroutines.withContext(Dispatchers.Main) {
+                    conversationsError.value = friendly(t)
+                }
+            }
+        }
+    }
+
+    fun continueConversation(c: ZoConversation) {
+        activeCall?.cancel(); activeCall = null
+        tickerJob?.cancel(); turnActive.set(false)
+        tts.stopSpeaking(); asr.stop()
+        conversationId = c.id
+        prefs.conversationId = c.id
+        viewModelScope.launch(Dispatchers.IO) {
+            var msgs: List<ChatMessage> = emptyList()
+            var spoke = "Continuing: ${SentenceChunker.sanitize(c.title)}."
+            try {
+                msgs = ZoConversations.history(prefs.token, c.id)
+            } catch (t: Throwable) {
+                if (c.local) msgs = chatStore.load()
+                spoke = "Continuing: ${SentenceChunker.sanitize(c.title)}. History not loaded — ${friendly(t)}"
+            }
+            val loaded = msgs
+            val announce = spoke
+            kotlinx.coroutines.withContext(Dispatchers.Main) {
+                chatStore.save(loaded)
+                ui.update { it.copy(messages = loaded, phase = Phase.Idle, partial = "", status = null) }
+                if (prefs.speakResponses) tts.speakNow(announce)
+                if (prefs.autoListen) maybeAutoListen()
+            }
+        }
+    }
+
+    fun speakUpdates(c: ZoConversation) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val hist = ZoConversations.history(prefs.token, c.id)
+                val digest = "Latest in ${SentenceChunker.sanitize(c.title)}. " +
+                    ZoConversations.speakableDigest(hist)
+                kotlinx.coroutines.withContext(Dispatchers.Main) {
+                    if (prefs.speakResponses) { tts.stopSpeaking(); tts.speakNow(digest) }
+                }
+            } catch (t: Throwable) {
+                kotlinx.coroutines.withContext(Dispatchers.Main) {
+                    if (prefs.speakResponses) tts.speakNow(friendly(t))
+                }
+            }
+        }
+    }
+
+    fun catchMeUp() {
+        ui.update { it.copy(status = "Catching you up…") }
+        viewModelScope.launch(Dispatchers.IO) {
+            val speakOnMain: (String) -> Unit = { text ->
+                viewModelScope.launch(Dispatchers.Main) {
+                    ui.update { it.copy(status = null) }
+                    if (prefs.speakResponses) { tts.stopSpeaking(); tts.speakNow(text) }
+                }
+            }
+            try {
+                val convs = ZoConversations.list(prefs.token)
+                val target = convs.firstOrNull()
+                if (target == null) {
+                    speakOnMain("You have no recent Zo conversations.")
+                    return@launch
+                }
+                val hist = try {
+                    ZoConversations.history(prefs.token, target.id)
+                } catch (_: Throwable) { emptyList() }
+                val title = SentenceChunker.sanitize(target.title)
+                speakOnMain(
+                    if (hist.isEmpty()) {
+                        "Your most recent conversation is $title. Its history is not readable with this token."
+                    } else {
+                        "Catching you up on $title. " + ZoConversations.speakableDigest(hist)
+                    }
+                )
+            } catch (t: Throwable) {
+                speakOnMain(friendly(t))
+            }
+        }
+    }
+
+    /** Local voice commands, no Zo round-trip. Returns true if consumed. */
+    private fun handleVoiceCommand(raw: String): Boolean {
+        val t = raw.trim().lowercase().trimEnd(',', '.', '!', '?')
+        val isNew = Regex("^(new|start)( a | an | )(new )?(chat|conversation)$").matches(t)
+        val isCatchUp = t.contains("catch me up") || t.contains("what did i miss") ||
+            t.contains("read my conversations") || t.contains("hear my conversations") ||
+            t == "updates" || t == "catch up"
+        val isOpen = t.contains("open conversations") || t.contains("show conversations") ||
+            t.contains("list conversations")
+        return when {
+            isNew -> { tts.speakNow("New conversation."); newConversation(); true }
+            isCatchUp -> { catchMeUp(); true }
+            isOpen -> { loadConversations(); true }
+            else -> false
+        }
+    }
 
     // ---- conversation management ----
 

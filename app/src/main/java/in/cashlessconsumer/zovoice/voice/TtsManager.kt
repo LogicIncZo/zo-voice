@@ -102,6 +102,16 @@ class TtsManager(
         chunker.reset()
     }
 
+    /** One-shot announcement (digests, confirmations). Pairs with stopSpeaking() for interrupt. */
+    fun speakNow(text: String) {
+        pending.incrementAndGet()
+        try {
+            tts?.speak(text, TextToSpeech.QUEUE_ADD, Bundle(), "zv-now-${System.nanoTime()}")
+        } catch (_: Exception) {
+            pending.decrementAndGet()
+        }
+    }
+
     fun shutdown() {
         try {
             tts?.stop()
