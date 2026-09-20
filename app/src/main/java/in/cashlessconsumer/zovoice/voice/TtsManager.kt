@@ -27,7 +27,17 @@ class TtsManager(
     private val pending = AtomicInteger(0)
     private val speaking = AtomicBoolean(false)
     private val streamDone = AtomicBoolean(true)
-    private val buffer = StringBuilder()
+    private val earlyQueue = ArrayDeque<String>()
+
+    private val chunker = SentenceChunker { text ->
+        synchronized(earlyQueue) {
+            if (!ready.get()) {
+                earlyQueue.add(text)
+                return@synchronized
+            }
+        }
+        enqueue(text)
+    }
 
     init {
         tts = TextToSpeech(context.applicationContext) { status ->
@@ -35,7 +45,12 @@ class TtsManager(
                 pickLanguage()
                 tts?.setOnUtteranceProgressListener(listener)
                 ready.set(true)
-                synchronized(buffer) { flushLocked(final = false) }
+                val early = synchronized(earlyQueue) {
+                    val copy = earlyQueue.toList()
+                    earlyQueue.clear()
+                    copy
+                }
+                early.forEach { enqueue(it) }
             }
         }
     }
@@ -59,20 +74,17 @@ class TtsManager(
     /** Append a streamed text chunk; speaks each completed sentence. */
     fun feed(chunk: String) {
         if (!enabled || chunk.isEmpty()) return
-        synchronized(buffer) {
-            buffer.append(chunk)
-            flushLocked(final = false)
-        }
+        chunker.feed(chunk)
     }
 
     /** Call once the stream has ended: flushes the tail and marks the turn done. */
     fun streamComplete() {
-        synchronized(buffer) { flushLocked(final = true) }
+        chunker.flush()
         streamDone.set(true)
     }
 
     fun reset() {
-        synchronized(buffer) { buffer.setLength(0) }
+        chunker.reset()
         streamDone.set(false)
     }
 
@@ -87,7 +99,7 @@ class TtsManager(
         pending.set(0)
         speaking.set(false)
         streamDone.set(true)
-        synchronized(buffer) { buffer.setLength(0) }
+        chunker.reset()
     }
 
     fun shutdown() {
@@ -107,31 +119,6 @@ class TtsManager(
         }
     }
 
-    private val sentenceEnders = charArrayOf('.', '!', '?', '\n')
-
-    private fun flushLocked(final: Boolean) {
-        val sb = buffer
-        var consumed = 0
-        var i = 0
-        while (i < sb.length) {
-            if (sb[i] in sentenceEnders) {
-                val seg = sanitize(sb.substring(consumed, i + 1))
-                if (seg.isNotEmpty()) enqueue(seg)
-                consumed = i + 1
-            }
-            i++
-        }
-        if (final) {
-            val rest = sanitize(sb.substring(consumed))
-            if (rest.isNotEmpty()) enqueue(rest)
-            sb.setLength(0)
-        } else if (consumed > 0) {
-            val tail = sb.substring(consumed)
-            sb.setLength(0)
-            sb.append(tail)
-        }
-    }
-
     private fun enqueue(text: String) {
         val engine = tts ?: return
         pending.incrementAndGet()
@@ -144,16 +131,4 @@ class TtsManager(
             pending.decrementAndGet()
         }
     }
-
-    private val fencedCode = Regex("(?s)```.*?(```|$)")
-    private val mdSymbols = Regex("[*_`#>\\[\\]]")
-    private val bareUrls = Regex("\\(?https?://\\S+\\)?")
-    private val whitespace = Regex("\\s+")
-
-    private fun sanitize(text: String): String = text
-        .replace(fencedCode, " Code block. ")
-        .replace(bareUrls, "")
-        .replace(mdSymbols, "")
-        .replace(whitespace, " ")
-        .trim()
 }
