@@ -1,5 +1,7 @@
 # Zo Voice
 
+<p align="center"><img src="docs/logo.png" width="160" alt="Zo Voice logo"/></p>
+
 [![android](https://github.com/LogicIncZo/zo-voice/actions/workflows/android.yml/badge.svg)](https://github.com/LogicIncZo/zo-voice/actions/workflows/android.yml)
 
 Talk to your Zo from Android. Voice in, voice out — hands-free follow-ups, conversations
@@ -27,6 +29,15 @@ make apk      # verify + drop APK in releases/
 ```
 
 See CONTRIBUTING.md for conventions and known gotchas.
+
+## Conversations & catch-up (v0.2.0)
+
+- **Conversations screen** — lists your existing Zo conversations (`GET /conversations`).
+  Tap to continue one (history loads into the transcript, hands-free picks up where it left off).
+- **Hear updates** — the speaker button on any conversation reads its latest messages aloud;
+  the megaphone in the chat top bar does a spoken catch-up of your most recent conversation.
+- **Voice commands** — just say *"catch me up"*, *"new conversation"*, or *"open conversations"*;
+  they're handled locally, no Zo round-trip.
 
 ## Install
 

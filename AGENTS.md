@@ -16,6 +16,13 @@ Package: `in.cashlessconsumer.zovoice` (namespace string in app/build.gradle.kts
   - `FrontendModelRequest` (echo of request — ignore), `completed` (`data.status: succeeded|...`), `Error`.
 - `GET /models/available` → `{models: [{model_name, label, vendor, is_byok}]}`;
   `GET /personas/available` → `{personas: [{id, name}]}`.
+- `GET /conversations` + `GET /conversations/{id}` exist but 401 the internal identity
+  token — they expect a `zo_sk_` user access token (verified live 2026-09-20; response
+  shape undocumented, so `ZoConversations.kt` parses shape-tolerantly: bare array or
+  wrapped object, field aliases for id/title/updated/preview, ISO or epoch timestamps).
+  `ZoConversations.speakableDigest` renders history as spoken "You said / Zo said" text.
+- MCP `api.zo.computer/mcp` (identity token) exposes the 104 agent tools only — no
+  conversation listing; zo-tui has no prior art either.
 
 ## Gotchas (hit during first build — do not regress)
 
@@ -27,6 +34,11 @@ Package: `in.cashlessconsumer.zovoice` (namespace string in app/build.gradle.kts
 - Material3 `@OptIn(ExperimentalMaterial3Api::class)` on anything using TopAppBar.
 - Mic/Stop icons need `material-icons-extended` (core set lacks them).
 - AGP 8.7.3 + Gradle 8.10 + JDK 17 + compileSdk 35; buildToolsVersion pinned 34.0.0.
+- Launcher icon: adaptive (`mipmap-anydpi-v26` → `@drawable/ic_launcher_foreground` full-bleed
+  432px + `@color/ic_launcher_background` #0B0F19) + legacy density PNGs. Source art:
+  `docs/logo.png` (generated, wing-over-waveform). Sandbox builds: keep
+  `kotlin.compiler.execution.strategy=in-process` in gradle.properties — a separate Kotlin
+  daemon OOM-killed the container once.
 
 ## Architecture
 
@@ -54,8 +66,8 @@ make test          # JVM unit tests only (fastest signal)
 ./gradlew compileDebugKotlin   # fastest compile error check
 ```
 
-Unit tests (13, `app/src/test/`) cover the pure-logic core: `ZoSseParser`
-and `SentenceChunker`. Keep new logic out of Android framework classes so it
+Unit tests (22, `app/src/test/`) cover the pure-logic core: `ZoSseParser`,
+`SentenceChunker`, `ZoConversations` parsing/digests. Keep new logic out of Android framework classes so it
 stays JVM-testable; `org.json` on the JVM comes from `testImplementation
 org.json:json` (Android ships a stub).
 
