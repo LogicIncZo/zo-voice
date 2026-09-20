@@ -79,6 +79,8 @@ import `in`.cashlessconsumer.zovoice.AppViewModel
 import `in`.cashlessconsumer.zovoice.Phase
 import `in`.cashlessconsumer.zovoice.UiState
 import `in`.cashlessconsumer.zovoice.data.ChatMessage
+import `in`.cashlessconsumer.zovoice.data.ModelInfo
+import `in`.cashlessconsumer.zovoice.data.PersonaInfo
 
 private val DarkColors = darkColorScheme(
     primary = Color(0xFF9ECAFF),

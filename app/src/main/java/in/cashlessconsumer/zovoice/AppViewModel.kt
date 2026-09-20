@@ -4,6 +4,10 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import `in`.cashlessconsumer.zovoice.data.ChatMessage
+import `in`.cashlessconsumer.zovoice.data.ModelInfo
+import `in`.cashlessconsumer.zovoice.data.Options
+import `in`.cashlessconsumer.zovoice.data.PersonaInfo
+import `in`.cashlessconsumer.zovoice.data.toChat
 import `in`.cashlessconsumer.zovoice.voice.SentenceChunker
 import `in`.cashlessconsumer.zovoice.data.ChatStore
 import `in`.cashlessconsumer.zovoice.data.Prefs
@@ -63,10 +67,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         )
     )
 
-    val models = MutableStateFlow<List<ZoApi.ModelInfo>>(emptyList())
+    val models = MutableStateFlow<List<ModelInfo>>(emptyList())
     val modelsLoading = MutableStateFlow(false)
     val modelsError = MutableStateFlow<String?>(null)
-    val personas = MutableStateFlow<List<ZoApi.PersonaInfo>>(emptyList())
+    val personas = MutableStateFlow<List<PersonaInfo>>(emptyList())
     val conversations = MutableStateFlow<List<ZoConversation>>(emptyList())
     val conversationsError = MutableStateFlow<String?>(null)
     private var conversationsLoaded = false
@@ -194,7 +198,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
         startTicker()
 
-        val opts = ZoApi.Options(token, prefs.modelName, prefs.personaId)
+        val opts = Options(token, prefs.modelName, prefs.personaId)
         activeCall = ZoApi.ask(
             opts = opts,
             input = text,
@@ -325,7 +329,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             var msgs: List<ChatMessage> = emptyList()
             var spoke = "Continuing: ${SentenceChunker.sanitize(c.title)}."
             try {
-                msgs = ZoConversations.history(prefs.token, c.id)
+                msgs = ZoConversations.history(prefs.token, c.id).map { it.toChat() }
             } catch (t: Throwable) {
                 if (c.local) msgs = chatStore.load()
                 spoke = "Continuing: ${SentenceChunker.sanitize(c.title)}. History not loaded — ${friendly(t)}"

@@ -42,6 +42,14 @@ Package: `in.cashlessconsumer.zovoice` (namespace string in app/build.gradle.kts
 
 ## Architecture
 
+**SDK split (v0.3.0):** networking/protocol logic (SSE parsing, `/zo/ask`, conversation
+listing/history, sentence chunking) moved to the [zo-kotlin SDK](https://github.com/LogicIncZo/zo-kotlin)
+(`dev.zocomputer:ask`, 33 JVM tests — source of truth). This app consumes it via Gradle
+composite build (`settings.gradle.kts` includeBuild `../zo-kotlin`, fallback to Maven artifact);
+app side keeps thin typealiases (`data/ZoApi.kt`, `data/ZoConversations.kt`,
+`voice/SentenceChunker.kt`) + `data/ZoBridge.kt` (ChatMessage <-> HistoryMessage mappers).
+Don't re-grow protocol code here — change the SDK.
+
 - `AppViewModel` owns the loop: `Idle → Listening → Thinking → Speaking → (hands-free) Listening`.
   ASR/TTS callbacks converge on Main; Zo stream deltas arrive on an OkHttp thread and are
   funnelled through thread-safe `MutableStateFlow.update` + `TtsManager.feed` (synchronized buffer).

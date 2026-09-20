@@ -13,8 +13,8 @@ android {
         applicationId = "in.cashlessconsumer.zovoice"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "0.2.0"
+        versionCode = 3
+        versionName = "0.3.0"
     }
 
     buildTypes {
@@ -41,6 +41,7 @@ android {
 }
 
 dependencies {
+    implementation("dev.zocomputer:ask:0.2.0")
     testImplementation("junit:junit:4.13.2")
     // Real org.json for JVM unit tests (Android ships a stub)
     testImplementation("org.json:json:20240303")

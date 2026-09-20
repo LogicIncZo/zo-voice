@@ -14,19 +14,15 @@ no extra API keys beyond your Zo access token.
 ## Engineering loop
 
 ```bash
-make verify   # unit tests + lint + debug build (no emulator needed)
-make apk      # verify + copy to releases/
-```
-
-13 JVM unit tests cover the SSE parser and sentence chunker — the two pieces
-that decide what gets spoken. See CONTRIBUTING.md for conventions and gotchas.
-
-## Engineering loop
-
-```bash
-make verify   # unit tests (13, JVM-only) + lint + build — no emulator needed
+make verify   # JVM unit tests + lint + build — no emulator needed
 make apk      # verify + drop APK in releases/
 ```
+
+Networking + protocol logic (SSE parsing, `/zo/ask`, conversations, sentence chunking)
+lives in the [zo-kotlin SDK](https://github.com/LogicIncZo/zo-kotlin) (`dev.zocomputer:ask`),
+consumed from source via Gradle composite build when `../zo-kotlin` exists, else from Maven.
+App side keeps thin typealiases (`data/ZoApi.kt`, `data/ZoConversations.kt`,
+`voice/SentenceChunker.kt`) and `data/ZoBridge.kt` (ChatMessage ↔ HistoryMessage).
 
 See CONTRIBUTING.md for conventions and known gotchas.
 
@@ -85,6 +81,9 @@ Android Studio (Hedgehog+) or CLI with JDK 17 + Android SDK 35. CI: `.github/wor
 | `Authorization: Bearer <token>` | Auth |
 | `x-conversation-id` response header | Conversation continuity |
 | `GET /models/available`, `GET /personas/available` | Settings pickers |
+
+The zo-kotlin SDK handles the wire: it speaks the SSE protocol below and
+exposes `ZoApi`, `ZoConversations`, `ZoSseParser`, `SentenceChunker` with 33 JVM tests.
 
 Stream events handled: `PartStartEvent` + `PartDeltaEvent` (only `part_kind`/`part_delta_kind`
 == `text`; `thinking` parts are skipped), `AgentRuntimeStreamChunk` (status line), `completed`
