@@ -317,7 +317,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         conversationsLoaded = true
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val remote = ZoConversations.list(prefs.token)
+                val meta = ZoConversations.listWithMeta(prefs.token)
+                val remote = meta.conversations
+                val diag = "HTTP ${meta.httpCode} | ${meta.bodyHead}"
                 val localId = prefs.conversationId
                 val merged = if (localId.isNotBlank() && remote.none { it.id == localId }) {
                     val localTitle = ui.value.messages.firstOrNull { it.role == "user" }
@@ -328,7 +330,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 }
                 kotlinx.coroutines.withContext(Dispatchers.Main) {
                     conversations.value = merged
-                    conversationsError.value = null
+                    conversationsError.value = if (merged.isEmpty()) "Conversations list is empty. $diag" else null
                 }
             } catch (t: Throwable) {
                 kotlinx.coroutines.withContext(Dispatchers.Main) {

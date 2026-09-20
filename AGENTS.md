@@ -21,6 +21,9 @@ Package: `in.cashlessconsumer.zovoice` (namespace string in app/build.gradle.kts
   shape undocumented, so `ZoConversations.kt` parses shape-tolerantly: bare array or
   wrapped object, field aliases for id/title/updated/preview, ISO or epoch timestamps).
   `ZoConversations.speakableDigest` renders history as spoken "You said / Zo said" text.
+- `GET /conversations` responses may be map-shaped (keyed by id), not just arrays — SDK
+  `parseConversationList` handles both; `ZoConversations.listWithMeta` returns raw HTTP code
+  + body head so the Conversations screen can show diagnostics when the list is empty.
 - MCP `api.zo.computer/mcp` (identity token) exposes the 104 agent tools only — no
   conversation listing; zo-tui has no prior art either.
 
