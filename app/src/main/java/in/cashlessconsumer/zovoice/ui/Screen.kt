@@ -56,6 +56,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -107,6 +108,9 @@ fun ZoVoiceApp(vm: AppViewModel) {
     var screen by remember { mutableStateOf("chat") }
     ZoVoiceTheme {
         BackHandler(enabled = screen != "chat") { screen = "chat" }
+        LaunchedEffect(Unit) {
+            vm.navEvents.collect { screen = it }
+        }
         if (screen == "settings") {
             SettingsScreen(vm = vm, onBack = { screen = "chat" })
         } else if (screen == "conversations") {
@@ -178,10 +182,12 @@ fun ChatScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            if (ui.messages.isEmpty() && ui.phase == Phase.Idle && ui.partial.isEmpty()) {
-                EmptyState(tokenSet = settings.token.isNotBlank())
-            } else {
-                Transcript(ui = ui, modifier = Modifier.weight(1f))
+            Box(Modifier.weight(1f)) {
+                if (ui.messages.isEmpty() && ui.phase == Phase.Idle && ui.partial.isEmpty()) {
+                    EmptyState(tokenSet = settings.token.isNotBlank())
+                } else {
+                    Transcript(ui = ui, modifier = Modifier.fillMaxSize())
+                }
             }
 
             Column(
@@ -220,7 +226,7 @@ private fun statusLine(ui: UiState): String = when (ui.phase) {
         ui.status?.let { append(" · $it") }
     }
     Phase.Speaking -> "Speaking… tap the button to interrupt"
-    Phase.Idle -> ui.error ?: "Tap the mic and talk"
+    Phase.Idle -> ui.error ?: ui.info ?: "Tap the mic and talk"
 }
 
 @Composable
@@ -290,7 +296,8 @@ private fun Transcript(ui: UiState, modifier: Modifier = Modifier) {
         if (ui.phase == Phase.Thinking || ui.partial.isNotBlank()) {
             item(key = "streaming") { StreamingBubble(partial = ui.partial, status = ui.status) }
         }
-        items(ui.messages.reversed()) { msg -> Bubble(msg = msg) }
+        val n = ui.messages.size
+        items(n, key = { n - 1 - it }) { i -> Bubble(msg = ui.messages[n - 1 - i]) }
     }
 }
 

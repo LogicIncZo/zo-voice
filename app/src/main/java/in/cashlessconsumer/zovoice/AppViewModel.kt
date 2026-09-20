@@ -18,6 +18,7 @@ import `in`.cashlessconsumer.zovoice.voice.TtsManager
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
@@ -36,6 +37,7 @@ data class UiState(
     val partial: String = "",
     val status: String? = null,
     val error: String? = null,
+    val info: String? = null,
     val elapsedSec: Int = 0,
 )
 
@@ -74,6 +76,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val conversations = MutableStateFlow<List<ZoConversation>>(emptyList())
     val conversationsError = MutableStateFlow<String?>(null)
     private var conversationsLoaded = false
+    val navEvents = MutableSharedFlow<String>(extraBufferCapacity = 8)
     val personasLoading = MutableStateFlow(false)
     val personasError = MutableStateFlow<String?>(null)
 
@@ -83,7 +86,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private val asr = SpeechRecognizerManager(
         app,
         onPartial = { text ->
-            ui.update { if (it.phase == Phase.Listening) it.copy(partial = text) else it }
+            ui.update { if (it.phase == Phase.Listening && it.partial != text) it.copy(partial = text) else it }
         },
         onFinal = { text ->
             if (ui.value.phase == Phase.Listening) send(text)
@@ -99,7 +102,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         if (prefs.autoListen && prefs.token.isNotBlank()) {
             viewModelScope.launch(Dispatchers.Main) {
                 delay(700)
-                if (ui.value.phase == Phase.Idle) startListening()
+                maybeAutoListen()
             }
         }
     }
@@ -110,6 +113,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private val turnActive = AtomicBoolean(false)
     private val assistantText = StringBuilder()
     private var consecutiveAsrErrors = 0
+    private var autoListenJob: Job? = null
 
     // ---- mic / phase control ----
 
@@ -137,36 +141,51 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             ui.update { it.copy(error = "No speech recognizer on this device — use the text box.") }
             return
         }
-        ui.update { it.copy(phase = Phase.Listening, partial = "", error = null) }
+        ui.update { it.copy(phase = Phase.Listening, partial = "", error = null, info = null) }
         asr.start()
     }
 
     private fun stopListening() {
+        autoListenJob?.cancel()
+        autoListenJob = null
         asr.stop()
         ui.update { it.copy(phase = Phase.Idle, partial = "") }
     }
 
     private fun maybeAutoListen() {
         if (!prefs.autoListen || prefs.token.isBlank()) return
-        viewModelScope.launch(Dispatchers.Main) {
+        autoListenJob?.cancel()
+        autoListenJob = viewModelScope.launch(Dispatchers.Main) {
             delay(900)
+            autoListenJob = null
             if (ui.value.phase == Phase.Idle) startListening()
         }
     }
 
     private fun onAsrError(message: String?) {
-        if (ui.value.phase == Phase.Listening) {
-            ui.update { it.copy(phase = Phase.Idle, partial = "") }
-        }
-        if (message != null) {
-            consecutiveAsrErrors++
-            ui.update { it.copy(error = message) }
-        }
-        if (prefs.autoListen && prefs.token.isNotBlank() && consecutiveAsrErrors < 4) {
-            viewModelScope.launch(Dispatchers.Main) {
-                delay(1500)
-                if (ui.value.phase == Phase.Idle) startListening()
+        if (message == null) {
+            // Transient (busy/client): keep Listening appearance if a restart is coming.
+            if (prefs.autoListen && prefs.token.isNotBlank() && consecutiveAsrErrors < 4) {
+                scheduleAsrRestart()
+            } else {
+                ui.update { it.copy(phase = Phase.Idle, partial = "") }
             }
+            return
+        }
+        consecutiveAsrErrors++
+        ui.update { it.copy(phase = Phase.Idle, partial = "", error = message) }
+        if (prefs.autoListen && prefs.token.isNotBlank()) {
+            if (consecutiveAsrErrors < 4) scheduleAsrRestart()
+            else ui.update { it.copy(info = "Hands-free paused — tap the mic to resume.") }
+        }
+    }
+
+    private fun scheduleAsrRestart() {
+        autoListenJob?.cancel()
+        autoListenJob = viewModelScope.launch(Dispatchers.Main) {
+            delay(1500)
+            autoListenJob = null
+            if (ui.value.phase == Phase.Idle) startListening()
         }
     }
 
@@ -369,6 +388,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 viewModelScope.launch(Dispatchers.Main) {
                     ui.update { it.copy(status = null) }
                     if (prefs.speakResponses) { tts.stopSpeaking(); tts.speakNow(text) }
+                    else ui.update { it.copy(info = text.take(220)) }
                 }
             }
             try {
@@ -407,7 +427,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         return when {
             isNew -> { tts.speakNow("New conversation."); newConversation(); true }
             isCatchUp -> { catchMeUp(); true }
-            isOpen -> { loadConversations(); true }
+            isOpen -> {
+                loadConversations()
+                navEvents.tryEmit("conversations")
+                true
+            }
             else -> false
         }
     }
@@ -415,6 +439,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     // ---- conversation management ----
 
     fun newConversation() {
+        autoListenJob?.cancel()
+        autoListenJob = null
         activeCall?.cancel()
         activeCall = null
         tickerJob?.cancel()
@@ -484,7 +510,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     override fun onCleared() {
         activeCall?.cancel()
         tickerJob?.cancel()
-        asr.stop()
+        autoListenJob?.cancel()
+        asr.destroy()
         tts.shutdown()
         super.onCleared()
     }

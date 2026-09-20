@@ -29,14 +29,13 @@ class SpeechRecognizerManager(
 
     fun start() {
         mainHandler.post {
-            destroyLocked()
             if (!isAvailable()) {
                 onError("Speech recognition is not available on this device. Install Google Speech Services or use the text box.")
                 return@post
             }
-            val rec = SpeechRecognizer.createSpeechRecognizer(context)
-            recognizer = rec
-            rec.setRecognitionListener(this)
+            if (recognizer == null) {
+                recognizer = SpeechRecognizer.createSpeechRecognizer(context).also { it.setRecognitionListener(this) }
+            }
             val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                 putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
@@ -44,7 +43,7 @@ class SpeechRecognizerManager(
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault().toLanguageTag())
             }
             try {
-                rec.startListening(intent)
+                recognizer?.startListening(intent)
             } catch (e: Exception) {
                 onError("Could not start the microphone: ${e.message}")
             }
@@ -52,6 +51,15 @@ class SpeechRecognizerManager(
     }
 
     fun stop() {
+        mainHandler.post {
+            recognizer?.let { rec ->
+                try { rec.stopListening() } catch (_: Exception) {}
+            }
+        }
+    }
+
+    /** Full teardown — only on ViewModel clear. */
+    fun destroy() {
         mainHandler.post { destroyLocked() }
     }
 
@@ -109,6 +117,9 @@ class SpeechRecognizerManager(
             SpeechRecognizer.ERROR_RECOGNIZER_BUSY,
             SpeechRecognizer.ERROR_CLIENT -> null
             else -> "Speech recognizer error ($error)."
+        }
+        if (error == SpeechRecognizer.ERROR_CLIENT) {
+            mainHandler.post { destroyLocked() }
         }
         if (message != null) onError(message) else onError(null)
     }

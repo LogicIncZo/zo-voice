@@ -39,6 +39,16 @@ Package: `in.cashlessconsumer.zovoice` (namespace string in app/build.gradle.kts
   `docs/logo.png` (generated, wing-over-waveform). Sandbox builds: keep
   `kotlin.compiler.execution.strategy=in-process` in gradle.properties — a separate Kotlin
   daemon OOM-killed the container once.
+- **ChatScreen content must sit inside `Box(Modifier.weight(1f))`** so the bottom controls
+  (mic button + text fallback) always keep measured space. v0.3.0 bug: `EmptyState` used
+  `fillMaxSize()` unbounded in the outer Column — on empty transcript it consumed all height
+  and the mic button vanished; combined with the `phase == Idle` branch it flickered on every
+  hands-free retry. Never render EmptyState outside a weight-bounded box.
+- Mic visibility must never be conditional on phase — `MicButton` always composes; only
+  color/icon swap. SpeechRecognizer is created once and reused (destroy on teardown or
+  ERROR_CLIENT only); recreate-per-start caused ERROR_RECOGNIZER_BUSY churn.
+- Hands-free restarts go through the single-flight `autoListenJob` (cancel-before-schedule);
+  after 4 consecutive ASR errors set `ui.info = "Hands-free paused…"` instead of looping.
 
 ## Architecture
 
