@@ -39,6 +39,11 @@ class Prefs(context: Context) {
         get() = sp.getString(KEY_CONVERSATION, "").orEmpty()
         set(v) = sp.edit().putString(KEY_CONVERSATION, v).apply()
 
+    /** Update tag the user dismissed (e.g. "v0.4.0") — no re-prompt until a newer tag. */
+    var dismissedUpdateTag: String
+        get() = sp.getString(KEY_DISMISSED_UPDATE, "").orEmpty()
+        set(v) = sp.edit().putString(KEY_DISMISSED_UPDATE, v).apply()
+
     private companion object {
         const val KEY_TOKEN = "token"
         const val KEY_MODEL = "model_name"
@@ -48,5 +53,6 @@ class Prefs(context: Context) {
         const val KEY_RATE = "speech_rate"
         const val KEY_PITCH = "speech_pitch"
         const val KEY_CONVERSATION = "conversation_id"
+        const val KEY_DISMISSED_UPDATE = "dismissed_update_tag"
     }
 }

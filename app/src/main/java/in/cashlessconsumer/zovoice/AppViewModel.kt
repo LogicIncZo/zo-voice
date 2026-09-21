@@ -23,10 +23,15 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
+import `in`.cashlessconsumer.zovoice.update.ReleaseInfo
+import `in`.cashlessconsumer.zovoice.update.UpdateChecker
+import `in`.cashlessconsumer.zovoice.update.UpdateState
+import `in`.cashlessconsumer.zovoice.update.UpdateLogic
 import kotlinx.coroutines.launch
 import `in`.cashlessconsumer.zovoice.data.ZoConversation
 import `in`.cashlessconsumer.zovoice.data.ZoConversations
 import okhttp3.Call
+import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 
 enum class Phase { Idle, Listening, Thinking, Speaking }
@@ -77,6 +82,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val conversationsError = MutableStateFlow<String?>(null)
     private var conversationsLoaded = false
     val navEvents = MutableSharedFlow<String>(extraBufferCapacity = 8)
+
+    private val updater = UpdateChecker()
+    val updateState = MutableStateFlow<UpdateState>(UpdateState.Idle)
+    val currentVersion: String = app.packageManager
+        .getPackageInfo(app.packageName, 0).versionName.orEmpty()
+    private var updateChecked = false
     val personasLoading = MutableStateFlow(false)
     val personasError = MutableStateFlow<String?>(null)
 
@@ -104,6 +115,16 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 delay(700)
                 maybeAutoListen()
             }
+        }
+        scheduleUpdateCheck()
+    }
+
+    private fun scheduleUpdateCheck() {
+        if (updateChecked) return
+        updateChecked = true
+        viewModelScope.launch(Dispatchers.IO) {
+            delay(4000)
+            checkForUpdatesInternal()
         }
     }
 
@@ -506,6 +527,58 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             } finally {
                 personasLoading.value = false
             }
+        }
+    }
+
+    fun checkForUpdates(manual: Boolean) {
+        updateChecked = true
+        viewModelScope.launch(Dispatchers.IO) { checkForUpdatesInternal(manual) }
+    }
+
+    fun dismissUpdate() {
+        val st = updateState.value
+        if (st is UpdateState.Available) prefs.dismissedUpdateTag = st.release.tagName
+        updateState.value = UpdateState.Idle
+    }
+
+    fun downloadUpdate(destDir: File) {
+        val st = updateState.value
+        if (st !is UpdateState.Available) return
+        val url = st.release.apkUrl
+        val tag = st.release.tagName
+        viewModelScope.launch(Dispatchers.IO) {
+            updateState.value = UpdateState.Downloading(0)
+            try {
+                val dest = File(destDir, "zo-voice-$tag.apk")
+                updater.downloadApk(url, dest) { pct ->
+                    updateState.value = UpdateState.Downloading(pct)
+                }
+                updateState.value = UpdateState.Ready(dest.absolutePath)
+            } catch (t: Throwable) {
+                if (t is kotlinx.coroutines.CancellationException) throw t
+                updateState.value = UpdateState.Failed(t.message ?: "Download failed")
+            }
+        }
+    }
+
+    private fun checkForUpdatesInternal(manual: Boolean = false) {
+        val cur = updateState.value
+        if (cur is UpdateState.Downloading || cur is UpdateState.Ready) return
+        updateState.value = UpdateState.Checking
+        try {
+            val rel = updater.fetchLatest()
+            when {
+                rel == null ->
+                    updateState.value = if (manual) UpdateState.Failed("No release found on GitHub.") else UpdateState.Idle
+                UpdateLogic.isNewer(currentVersion, rel.tagName) ->
+                    if (rel.tagName == prefs.dismissedUpdateTag) updateState.value = UpdateState.Idle
+                    else updateState.value = UpdateState.Available(rel)
+                else ->
+                    updateState.value = if (manual) UpdateState.UpToDate else UpdateState.Idle
+            }
+        } catch (t: Throwable) {
+            if (t is kotlinx.coroutines.CancellationException) throw t
+            updateState.value = if (manual) UpdateState.Failed(t.message ?: "Update check failed") else UpdateState.Idle
         }
     }
 

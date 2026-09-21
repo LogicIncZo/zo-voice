@@ -76,6 +76,17 @@ Don't re-grow protocol code here — change the SDK.
 - State: prefs (SharedPreferences), transcript (`filesDir/conversation.json`, 300-msg cap),
   `conversation_id` persisted → conversations resume across process death.
 
+## Auto-update (v0.4.0)
+
+`update/` package: `UpdateModels.kt` (ReleaseInfo/UpdateState/UpdateLogic — pure, JVM-tested),
+`UpdateChecker.kt` (blocking GitHub API fetch + streamed APK download with .part rename),
+`ApkInstaller.kt` (FileProvider ACTION_INSTALL). VM drives `updateState` (Idle/Checking/
+Available/Downloading/Ready/Failed/Dismissed) via `scheduleUpdateCheck()` (launch + 6h ticker,
+SingleUpdateCheck gate). Installer needs REQUEST_INSTALL_PACKAGES permission and
+`file_paths.xml` authority `in.cashlessconsumer.zovoice.fileprovider`. Releases MUST attach
+`releases/zo-voice-vX.Y.Z-debug.apk` assets — pickApkAsset prefers `-debug.apk`, falls back to
+any `.apk`; tag must be strictly newer semver than installed versionName.
+
 ## Build / verify
 
 The agent loop — one command, no emulator:

@@ -29,6 +29,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Refresh
@@ -67,6 +68,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import android.content.Intent
+import android.net.Uri
+import `in`.cashlessconsumer.zovoice.update.ApkInstaller
+import `in`.cashlessconsumer.zovoice.update.UpdateState
+import java.io.File
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -190,6 +196,8 @@ fun ChatScreen(
                 }
             }
 
+            UpdateCard(vm)
+
             Column(
                 Modifier
                     .fillMaxWidth()
@@ -214,6 +222,80 @@ fun ChatScreen(
                 Spacer(Modifier.height(8.dp))
                 TextFallbackRow(vm = vm, enabled = ui.phase == Phase.Idle || ui.phase == Phase.Listening)
                 Spacer(Modifier.height(12.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun UpdateCard(vm: AppViewModel) {
+    val st by vm.updateState.collectAsState()
+    val context = LocalContext.current
+    LaunchedEffect(st) {
+        val ready = st as? UpdateState.Ready ?: return@LaunchedEffect
+        ApkInstaller.install(context, File(ready.apkPath))
+    }
+    when (val s = st) {
+        is UpdateState.Available -> UpdateBanner(
+            title = buildString {
+                append("Update available: ${'$'}{s.release.tagName}")
+                if (s.release.name.isNotBlank() && s.release.name != s.release.tagName) append(" — ${'$'}{s.release.name}")
+            },
+            actionLabel = "Download",
+            onAction = { vm.downloadUpdate(File(context.getExternalFilesDir(null), "updates")) },
+            dismissable = true,
+            onDismiss = { vm.dismissUpdate() },
+        )
+        is UpdateState.Downloading -> UpdateBanner(
+            title = "Downloading update… ${'$'}{s.percent}%",
+            actionLabel = null, onAction = null,
+        )
+        is UpdateState.Ready -> UpdateBanner(
+            title = "Update downloaded — opening installer…",
+            actionLabel = "Install",
+            onAction = { ApkInstaller.install(context, File(s.apkPath)) },
+        )
+        is UpdateState.Failed -> UpdateBanner(
+            title = "Update check failed: ${'$'}{s.message}",
+            actionLabel = "Retry",
+            onAction = { vm.checkForUpdates(manual = true) },
+        )
+        else -> {}
+    }
+}
+
+@Composable
+private fun UpdateBanner(
+    title: String,
+    actionLabel: String?,
+    onAction: (() -> Unit)?,
+    dismissable: Boolean = false,
+    onDismiss: (() -> Unit)? = null,
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+    ) {
+        Row(
+            Modifier.padding(start = 14.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                title,
+                Modifier.weight(1f),
+                fontSize = 13.sp,
+                color = MaterialTheme.colorScheme.onSecondaryContainer
+            )
+            if (actionLabel != null) {
+                TextButton(onClick = { onAction?.invoke() }) { Text(actionLabel) }
+            }
+            if (dismissable) {
+                IconButton(onClick = { onDismiss?.invoke() }, modifier = Modifier.size(28.dp)) {
+                    Icon(Icons.Filled.Close, contentDescription = "Dismiss update", modifier = Modifier.size(16.dp))
+                }
             }
         }
     }
@@ -556,8 +638,37 @@ fun SettingsScreen(vm: AppViewModel, onBack: () -> Unit) {
             Spacer(Modifier.height(24.dp))
             HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
             Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(24.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
+            Spacer(Modifier.height(12.dp))
+            SectionLabel("Updates")
             Text(
-                "Zo Voice v0.1.0 · talks to https://api.zo.computer/zo/ask with streaming.\n" +
+                "Installed: ${vm.currentVersion}",
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.height(6.dp))
+            val st by vm.updateState.collectAsState()
+            Button(
+                onClick = { vm.checkForUpdates(manual = true) },
+                enabled = st !is UpdateState.Downloading
+            ) { Text("Check for updates") }
+            when (val s = st) {
+                is UpdateState.Checking -> StatusText("Checking GitHub releases…")
+                is UpdateState.UpToDate -> StatusText("You're on the latest release.")
+                is UpdateState.Downloading -> StatusText("Downloading… ${s.percent}%")
+                is UpdateState.Failed -> Text(
+                    s.message,
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(top = 6.dp)
+                )
+                is UpdateState.Available -> StatusText("${s.release.tagName} is available — see the chat screen to install.")
+                else -> {}
+            }
+            Spacer(Modifier.height(12.dp))
+            Text(
+                "Zo Voice ${vm.currentVersion} · talks to https://api.zo.computer/zo/ask with streaming.\n" +
                     "Speech-to-text and text-to-speech run on-device via Android's speech services.",
                 fontSize = 11.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -565,6 +676,16 @@ fun SettingsScreen(vm: AppViewModel, onBack: () -> Unit) {
             Spacer(Modifier.height(24.dp))
         }
     }
+}
+
+@Composable
+private fun StatusText(text: String) {
+    Text(
+        text,
+        fontSize = 12.sp,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(top = 6.dp)
+    )
 }
 
 @Composable

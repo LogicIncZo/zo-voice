@@ -26,6 +26,16 @@ App side keeps thin typealiases (`data/ZoApi.kt`, `data/ZoConversations.kt`,
 
 See CONTRIBUTING.md for conventions and known gotchas.
 
+## Auto-update (v0.4.0)
+
+On launch (+ every 6h while open) the app checks GitHub Releases
+(`repos/LogicIncZo/zo-voice/releases/latest`), compares `tag_name` against the
+installed `versionName`, and on a strictly-newer tag shows an Update card
+(version + notes head + size). Install streams the release APK through
+FileProvider to the system package installer (REQUEST_INSTALL_PACKAGES;
+user approves once in Android settings for sideloaded apps). Dismissals are
+remembered per tag. Manual re-check lives in Settings → Updates.
+
 ## Conversations & catch-up (v0.2.0)
 
 - **Conversations screen** — lists your existing Zo conversations (`GET /conversations`).
